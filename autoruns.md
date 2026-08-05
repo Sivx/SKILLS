@@ -56,7 +56,9 @@ If `projects.json` doesn't exist, create it as `[]` and say the registry is empt
    node .claude/skills/operator/relay.mjs spawn "<path>" --name=auto-<name> --prompt="<prompt>"
    ```
 
-   Add `--model=<model>` when the entry sets one. Spawning opens a terminal and starts a real
+   Add `--model=<model>` when the entry sets one. Workers spawn with permission prompts
+   disabled so they can run unattended — so only ever spawn into a registered project path,
+   never somewhere the user hasn't vouched for. Spawning opens a terminal and starts a real
    session — it is not free and not silent. Confirm the list with the user before spawning more
    than one at a time.
 

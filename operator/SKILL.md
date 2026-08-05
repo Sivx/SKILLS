@@ -59,7 +59,7 @@ started that way.
   `node relay.mjs send <id> "your instruction here"`
 
 - **Spawn a new session in a project folder:**
-  `node relay.mjs spawn <cwd> [--name=<name>] [--model=<model>] [--prompt=<text>]`
+  `node relay.mjs spawn <cwd> [--name=<name>] [--model=<model>] [--prompt=<text>] [--safe]`
   Launches `claude --remote-control <name>` in `cwd`, waits for it to register, and prints
   `{id, name, cwd}`. With `--prompt`, it also sends the opening assignment once the session is
   up. Use this when a project has no worker yet.
@@ -67,6 +67,11 @@ started that way.
     window on Windows, Terminal on macOS, `setsid script` on Linux (which works headless over
     ssh). Override the binary with `CLAUDE_BIN`.
   - Registration takes a few seconds; the command polls for up to 60s before giving up.
+  - **Spawned workers run with `--dangerously-skip-permissions` by default.** A permission
+    prompt with nobody at the window is a worker hung until someone notices, which is the
+    failure an unattended fleet cannot see. Pass `--safe` to restore prompts when a human is
+    watching. Only spawn into directories you'd let an agent act in freely — the worker will
+    run commands and edit files without asking.
 
 ## Knowing which session is your worker
 

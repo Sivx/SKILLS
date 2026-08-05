@@ -160,9 +160,16 @@ async function status(id, tail = 1200) {
 // `claude` is an interactive TUI and needs a real TTY — with no console it detects
 // non-interactive and exits before it ever reaches the relay. So every strategy below
 // gives it a terminal.
-function launchStrategy(cwd, name, model) {
+// Spawned workers run unattended, so they default to --dangerously-skip-permissions:
+// a permission prompt with nobody at the window is a worker hung until someone notices.
+// Pass `--safe` to spawn when a human will be watching and you want the prompts back.
+function launchStrategy(cwd, name, model, skipPermissions = true) {
   const bin = process.env.CLAUDE_BIN || 'claude'
-  const flags = ['--remote-control', name, ...(model ? ['--model', model] : [])]
+  const flags = [
+    '--remote-control', name,
+    ...(skipPermissions ? ['--dangerously-skip-permissions'] : []),
+    ...(model ? ['--model', model] : []),
+  ]
   const q = s => `"${String(s).replace(/"/g, '""')}"`
   if (process.platform === 'win32') {
     // `start` gives a real console; /D sets the working directory.
@@ -178,13 +185,13 @@ function launchStrategy(cwd, name, model) {
   return { cmd: `setsid script -qc ${q(inner)} /dev/null`, shell: true, cwd }
 }
 
-async function spawnSession(cwdArg, { name: wanted, prompt, model, timeoutMs = 60000 } = {}) {
+async function spawnSession(cwdArg, { name: wanted, prompt, model, skipPermissions = true, timeoutMs = 60000 } = {}) {
   const cwd = resolve(cwdArg)
   if (!fs.existsSync(cwd)) throw new Error(`no such directory: ${cwd}`)
   const name = wanted || `op-${basename(cwd)}-${Date.now().toString(36).slice(-4)}`
 
   const before = new Set((await list({})).map(r => r.id))
-  const { cmd, shell, cwd: procCwd } = launchStrategy(cwd, name, model)
+  const { cmd, shell, cwd: procCwd } = launchStrategy(cwd, name, model, skipPermissions)
   const child = spawnProc(cmd, { cwd: procCwd || cwd, shell, detached: true, stdio: 'ignore' })
   child.unref()
 
@@ -239,9 +246,10 @@ async function main() {
     } else if (cmd === 'spawn') {
       const flag = (n) => { const a = rest.find(x => x.startsWith(`--${n}=`)); return a ? a.slice(n.length + 3) : null }
       const cwdArg = rest.find(a => !a.startsWith('--'))
-      if (!cwdArg) throw new Error('usage: relay.mjs spawn <cwd> [--name=<name>] [--model=<model>] [--prompt=<text>]')
+      if (!cwdArg) throw new Error('usage: relay.mjs spawn <cwd> [--name=<name>] [--model=<model>] [--prompt=<text>] [--safe]')
       console.log(JSON.stringify(await spawnSession(cwdArg, {
         name: flag('name'), model: flag('model'), prompt: flag('prompt'),
+        skipPermissions: !rest.includes('--safe'),
       }), null, 2))
     } else if (cmd === 'send') {
       const id = rest[0]
@@ -250,7 +258,7 @@ async function main() {
       await send(id, text)
       console.log('sent')
     } else {
-      console.log('usage: relay.mjs <list [--rc] [--fresh[=min]] [--id=<id>[,<id>]] | live [min] | read <id> [tail] [--assistant] | status <id> [tail] | spawn <cwd> [--name=] [--model=] [--prompt=] | send <id> <text...>>')
+      console.log('usage: relay.mjs <list [--rc] [--fresh[=min]] [--id=<id>[,<id>]] | live [min] | read <id> [tail] [--assistant] | status <id> [tail] | spawn <cwd> [--name=] [--model=] [--prompt=] [--safe] | send <id> <text...>>')
       process.exit(cmd ? 1 : 0)
     }
   } catch (e) {
