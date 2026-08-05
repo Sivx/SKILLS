@@ -24,6 +24,24 @@ request spawns each as a worker session, bootstrapping the project with `worker.
 has no `CLAUDE.md`. Add and remove projects by asking it. The registry stays on your machine;
 it is not part of this repo.
 
+### Boss mode
+
+A lone worker stops after each step and waits. A **boss** is a manager session that keeps it
+moving — and a boss can itself be bossed. The hierarchy is encoded in the folder name, so
+nesting is just another suffix:
+
+```
+C:/dev/ApexTrader             worker — does the work
+C:/dev/ApexTrader_boss        drives the worker
+C:/dev/ApexTrader_boss_boss   drives that boss
+```
+
+Ask autoruns for a project *with a boss* and it builds the stack bottom-up: spawn the worker,
+then create each `_boss` folder with `manager.md`, the operator skill, and a **charter** naming
+the exact session id it drives, its poll interval, and its stop condition. Each level polls 2–3×
+slower than the one below. Only the top level talks to you; everything below escalates to its
+parent.
+
 ## Pull into a new folder
 
 Start Claude in the empty folder and paste:
