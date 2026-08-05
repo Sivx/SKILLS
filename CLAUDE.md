@@ -5,13 +5,14 @@ role, install it, and replace itself. Do that now, before anything else.
 
 ## Step 1 — ask which role
 
-Ask the user, using AskUserQuestion, a single question: **is this session a worker or a
-manager?**
+Ask the user, using AskUserQuestion, a single question: **what role is this session?**
 
 - **Worker** — does the actual building in one project. Gets driven by a manager, or works
   straight from a roadmap.
 - **Manager** — directs other Claude Code sessions. Doesn't build; dispatches, verifies, and
   keeps workers moving on long-horizon work.
+- **Autoruns** — a launcher. Keeps a registry of projects and spins them up as worker sessions
+  on request. This is the role for a dedicated `autoruns` folder, not for a project folder.
 
 Ask nothing else. Don't survey the project, don't propose a plan, don't start work.
 
@@ -29,6 +30,15 @@ curl -sL https://raw.githubusercontent.com/Sivx/SKILLS/main/worker.md -o CLAUDE.
 
 ```bash
 curl -sL https://raw.githubusercontent.com/Sivx/SKILLS/main/manager.md -o CLAUDE.md
+mkdir -p .claude/skills/operator
+curl -sL https://raw.githubusercontent.com/Sivx/SKILLS/main/operator/SKILL.md -o .claude/skills/operator/SKILL.md
+curl -sL https://raw.githubusercontent.com/Sivx/SKILLS/main/operator/relay.mjs -o .claude/skills/operator/relay.mjs
+```
+
+**Autoruns:**
+
+```bash
+curl -sL https://raw.githubusercontent.com/Sivx/SKILLS/main/autoruns.md -o CLAUDE.md
 mkdir -p .claude/skills/operator
 curl -sL https://raw.githubusercontent.com/Sivx/SKILLS/main/operator/SKILL.md -o .claude/skills/operator/SKILL.md
 curl -sL https://raw.githubusercontent.com/Sivx/SKILLS/main/operator/relay.mjs -o .claude/skills/operator/relay.mjs
