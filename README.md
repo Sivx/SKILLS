@@ -31,10 +31,14 @@ moving — and a boss can itself be bossed. The hierarchy is encoded in the fold
 nesting is just another suffix:
 
 ```
-C:/dev/ApexTrader             worker — does the work
-C:/dev/ApexTrader_boss        drives the worker
-C:/dev/ApexTrader_boss_boss   drives that boss
+C:/dev/ApexTrader                worker — does the work
+C:/dev/ApexTrader/_boss          drives the worker
+C:/dev/ApexTrader/_boss/_boss    drives that boss
 ```
+
+Everything for one effort stays inside that effort's repo. `_boss/` is added to the repo's
+`.git/info/exclude`, so the scaffolding never enters the project's history and never shows up
+as untracked clutter to the worker.
 
 Ask autoruns for a project *with a boss* and it builds the stack bottom-up: spawn the worker,
 then create each `_boss` folder with `manager.md`, the operator skill, and a **charter** naming
