@@ -58,6 +58,54 @@ started that way.
 - **Send a prompt into a session (lands as a user turn):**
   `node relay.mjs send <id> "your instruction here"`
 
+- **Spawn a new session in a project folder:**
+  `node relay.mjs spawn <cwd> [--name=<name>] [--model=<model>] [--prompt=<text>]`
+  Launches `claude --remote-control <name>` in `cwd`, waits for it to register, and prints
+  `{id, name, cwd}`. With `--prompt`, it also sends the opening assignment once the session is
+  up. Use this when a project has no worker yet.
+  - `claude` is an interactive TUI and needs a real terminal, so this opens one: a console
+    window on Windows, Terminal on macOS, `setsid script` on Linux (which works headless over
+    ssh). Override the binary with `CLAUDE_BIN`.
+  - Registration takes a few seconds; the command polls for up to 60s before giving up.
+
+## Knowing which session is your worker
+
+Sessions are not self-identifying, so establish identity deliberately. In order of reliability:
+
+1. **Name it at spawn.** `spawn --name=<name>` passes the name to `claude --remote-control`,
+   and it comes back as the session's `title`. You chose it, so you know it — no guessing. Use
+   a scheme you can reconstruct later, like `op-<project>-<n>`.
+2. **Diff the list around a spawn.** If a session appeared between your before and after
+   snapshots, that's yours. `spawn` already does this as a fallback when the name doesn't stick.
+3. **Match on `repo`.** Each row carries the GitHub repo it's working in. This narrows a fleet
+   fast, but it identifies a *repository*, not a folder — two workers in the same repo (or in
+   separate worktrees of it) look identical. Never rely on it alone when a repo has more than
+   one worker.
+4. **Read a commit trailer.** Commits carry `Claude-Session: …/session_<ULID>`, and the relay id
+   is `cse_<same ULID>`. So any commit tells you exactly which session produced it — the way to
+   attribute finished work after the fact, even for sessions you didn't spawn.
+
+Ask a session to identify itself only as a last resort: it costs it a turn, and a worker's
+self-report is a claim like any other.
+
+**`--rc` will miss sessions you spawned by name.** The `remote-control-auto` tag is only applied
+to auto-named sessions, so a `spawn --name=…` worker has `remoteControl: false` and is invisible
+to both `--rc` and `live`. Track spawned workers by their ids with `list --id=<a>,<b>` — which is
+the cheaper way to poll a known fleet regardless.
+
+## Reading a worker without reading its transcript
+
+Every row carries the worker's own end-of-turn self-report, which is far cheaper than a `read`:
+
+- `need` — `working`, `review_ready`, `need_input`, … the fastest signal that a session is
+  waiting on something rather than simply done.
+- `detail` — one line on where it actually is.
+- `needsAction` — what it says it needs from you.
+
+Treat these as a claim, not proof — `detail` says what the worker believes it did. Verify
+anything that matters against disk and git. But as a triage filter over a fleet, it tells you
+which worker to look at for roughly the cost of a `list`.
+
 ## Liveness: trust recency, not connection
 
 The relay is append-only and **never reaps** ended sessions. `connection` stays `connected` on
@@ -71,6 +119,10 @@ two seconds after the turn ends. A long build legitimately holds `running` for m
 that is faithful, not stuck. Do not "help" a running worker.
 
 ## Directing doctrine
+
+**Spawn a worker rather than reusing a stranger.** If a project has no session, start one with
+`spawn` and give it the assignment in the same move. A fresh session with a self-contained brief
+beats an existing one carrying unrelated context — and you know its identity because you named it.
 
 **Recon before dispatch — always.** Before sending work anywhere, check what is live and read
 the target repo's `git status` and recent log. A dirty working tree is a stop sign: another

@@ -2,7 +2,8 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import https from 'node:https'
-import { join } from 'node:path'
+import { spawn as spawnProc } from 'node:child_process'
+import { join, resolve, basename } from 'node:path'
 
 const HOST = 'api.anthropic.com'
 const VERSION = '2023-06-01'
@@ -106,6 +107,9 @@ async function list({ rcOnly = false, freshMin = null, ids = null } = {}) {
   const arr = j?.data || j?.sessions || []
   let rows = arr.map(s => {
     const age = ageMinutes(s.last_event_at)
+    // The worker's own end-of-turn self-report. `needs_action` is the cheapest
+    // signal that a session is waiting on something rather than just done.
+    const sum = s.external_metadata?.post_turn_summary || null
     return {
       id: s.id || s.session_id,
       title: s.title || s.name || s.summary || '',
@@ -114,6 +118,10 @@ async function list({ rcOnly = false, freshMin = null, ids = null } = {}) {
       bucket: s.status_bucket || s.status || '',
       status: s.status || '',
       connection: s.connection_status || '',
+      repo: s.config?.outcomes?.find(o => o.git_info)?.git_info?.repo || '',
+      need: sum?.status_category || '',
+      detail: sum?.status_detail || '',
+      needsAction: sum?.needs_action || '',
       ageMin: age,
       lastEventAt: s.last_event_at || '',
       live: s.connection_status === 'connected' && age != null && age < 15,
@@ -140,6 +148,62 @@ async function status(id, tail = 1200) {
   const [row] = await list({ ids: [id] })
   if (!row) return { id, error: 'not found' }
   return { ...row, lastAssistant: await read(id, tail, { assistantOnly: true }) }
+}
+
+// Launch a new Claude Code session in `cwd` and return its relay id.
+//
+// Identity is solved at the source: `claude --remote-control <name>` lets us choose
+// the session's name up front, so we look for exactly that title instead of guessing
+// which new row is ours. The before/after id diff is the fallback for the case where
+// the name doesn't survive to the relay.
+//
+// `claude` is an interactive TUI and needs a real TTY — with no console it detects
+// non-interactive and exits before it ever reaches the relay. So every strategy below
+// gives it a terminal.
+function launchStrategy(cwd, name, model) {
+  const bin = process.env.CLAUDE_BIN || 'claude'
+  const flags = ['--remote-control', name, ...(model ? ['--model', model] : [])]
+  const q = s => `"${String(s).replace(/"/g, '""')}"`
+  if (process.platform === 'win32') {
+    // `start` gives a real console; /D sets the working directory.
+    return { cmd: `start "" /D ${q(cwd)} ${q(bin)} ${flags.map(q).join(' ')}`, shell: true }
+  }
+  if (process.platform === 'darwin') {
+    const inner = `cd ${q(cwd)} && ${bin} ${flags.map(q).join(' ')}`
+    return { cmd: `osascript -e 'tell application "Terminal" to do script ${JSON.stringify(inner)}'`, shell: true }
+  }
+  // Linux: `script` hands us a pty without pulling in a native dependency, so this
+  // works headless over ssh as well as on a desktop.
+  const inner = `${bin} ${flags.map(q).join(' ')}`
+  return { cmd: `setsid script -qc ${q(inner)} /dev/null`, shell: true, cwd }
+}
+
+async function spawnSession(cwdArg, { name: wanted, prompt, model, timeoutMs = 60000 } = {}) {
+  const cwd = resolve(cwdArg)
+  if (!fs.existsSync(cwd)) throw new Error(`no such directory: ${cwd}`)
+  const name = wanted || `op-${basename(cwd)}-${Date.now().toString(36).slice(-4)}`
+
+  const before = new Set((await list({})).map(r => r.id))
+  const { cmd, shell, cwd: procCwd } = launchStrategy(cwd, name, model)
+  const child = spawnProc(cmd, { cwd: procCwd || cwd, shell, detached: true, stdio: 'ignore' })
+  child.unref()
+
+  const deadline = Date.now() + timeoutMs
+  let row = null
+  while (Date.now() < deadline) {
+    await delay(2000)
+    const rows = await list({})
+    row = rows.find(r => r.title === name) || rows.find(r => !before.has(r.id)) || null
+    if (row) break
+  }
+  if (!row) throw new Error(`session did not register within ${Math.round(timeoutMs / 1000)}s (name: ${name})`)
+
+  if (prompt) {
+    // Give the TUI a moment to finish coming up before the first turn lands.
+    await delay(3000)
+    await send(row.id, prompt)
+  }
+  return { id: row.id, name, cwd, prompted: Boolean(prompt) }
 }
 
 function send(id, text) {
@@ -172,6 +236,13 @@ async function main() {
       const [id, tail] = rest.filter(a => !a.startsWith('--'))
       if (!id) throw new Error('usage: relay.mjs status <sessionId> [tailChars]')
       console.log(JSON.stringify(await status(id, tail ? Number(tail) : 1200), null, 2))
+    } else if (cmd === 'spawn') {
+      const flag = (n) => { const a = rest.find(x => x.startsWith(`--${n}=`)); return a ? a.slice(n.length + 3) : null }
+      const cwdArg = rest.find(a => !a.startsWith('--'))
+      if (!cwdArg) throw new Error('usage: relay.mjs spawn <cwd> [--name=<name>] [--model=<model>] [--prompt=<text>]')
+      console.log(JSON.stringify(await spawnSession(cwdArg, {
+        name: flag('name'), model: flag('model'), prompt: flag('prompt'),
+      }), null, 2))
     } else if (cmd === 'send') {
       const id = rest[0]
       const text = rest.slice(1).join(' ')
@@ -179,7 +250,7 @@ async function main() {
       await send(id, text)
       console.log('sent')
     } else {
-      console.log('usage: relay.mjs <list [--rc] [--fresh[=min]] [--id=<id>[,<id>]] | live [min] | read <id> [tail] [--assistant] | status <id> [tail] | send <id> <text...>>')
+      console.log('usage: relay.mjs <list [--rc] [--fresh[=min]] [--id=<id>[,<id>]] | live [min] | read <id> [tail] [--assistant] | status <id> [tail] | spawn <cwd> [--name=] [--model=] [--prompt=] | send <id> <text...>>')
       process.exit(cmd ? 1 : 0)
     }
   } catch (e) {
