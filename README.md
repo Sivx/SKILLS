@@ -32,14 +32,13 @@ nesting is just another suffix:
 
 ```
 C:/dev/ApexTrader                worker — does the work (the repo)
-C:/dev/ApexTrader_boss           drives the worker
-C:/dev/ApexTrader_boss/_boss     drives that boss
+C:/dev/ApexTrader/_boss          drives the worker
+C:/dev/ApexTrader/_boss/_boss    drives that boss
 ```
 
-Level 1 sits *beside* the project so boss scaffolding never lands in the effort's repo — no
-phantom dirty state for the worker, nothing to accidentally commit, nothing to ignore. Above
-that, each level is a `_boss` subfolder of the one below, since boss folders are plain scratch
-directories.
+The whole stack lives in the effort's own tree and disappears with it. Autoruns adds `_boss/`
+to the project's root `.gitignore` before the first spawn — one entry covers every depth — so
+the scaffolding stays out of the effort's history and out of the worker's `git status`.
 
 Ask autoruns for a project *with a boss* and it builds the stack bottom-up: spawn the worker,
 then create each `_boss` folder with `manager.md`, the operator skill, and a **charter** naming
