@@ -139,6 +139,24 @@ Resolve `<bossPath>` first: level N-1's path + `/_boss`.
 
 6. Append the chain entry with `drives` set to the target's session id, and save.
 
+### Adding a level to a running stack
+
+You can add a level on top while everything below keeps working — the lower levels are never
+restarted. Two things must happen, in this order:
+
+1. **Build the new top level** exactly as above, targeting the previous top's session id.
+2. **Fix the previous top's escalation.** Its charter says it reports blockers to the user,
+   which is now wrong — only the top talks to the human. Patch the `**Escalate, don't surface.**`
+   line in `<previousTopPath>/CLAUDE.md` to point at the new level's session id. Editing that
+   file is safe while the session runs: it takes effect on its next `/clear`, no restart needed.
+
+Tell the user you patched it. If you skip this, nothing is lost — the lower boss just keeps
+escalating to the user instead of upward — but the chain is no longer honest about who reports
+to whom, and that gets confusing fast as depth grows.
+
+Never renumber or rewrite the levels below. Their charters are correct about what they drive;
+only the escalation target changes.
+
 ### Intervals
 
 Each level polls **slower than the one below it** — 2–3× is the rule. A boss bumped mid-tick
