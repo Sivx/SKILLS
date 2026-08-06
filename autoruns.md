@@ -33,8 +33,8 @@ spawn and check sessions. Call it as `node .claude/skills/operator/relay.mjs …
 ```json
 "chain": [
   { "level": 0, "role": "worker",  "path": "C:/dev/ApexTrader",           "sessionId": "cse_a", "startedAt": "2026-08-05T23:00:00Z", "drives": "" },
-  { "level": 1, "role": "boss",    "path": "C:/dev/ApexTrader/_boss",       "sessionId": "cse_b", "startedAt": "2026-08-05T23:01:00Z", "drives": "cse_a" },
-  { "level": 2, "role": "boss",    "path": "C:/dev/ApexTrader/_boss/_boss", "sessionId": "cse_c", "startedAt": "2026-08-05T23:02:00Z", "drives": "cse_b" }
+  { "level": 1, "role": "boss",    "path": "C:/dev/ApexTrader_boss",       "sessionId": "cse_b", "startedAt": "2026-08-05T23:01:00Z", "drives": "cse_a" },
+  { "level": 2, "role": "boss",    "path": "C:/dev/ApexTrader_boss/_boss", "sessionId": "cse_c", "startedAt": "2026-08-05T23:02:00Z", "drives": "cse_b" }
 ]
 ```
 
@@ -45,41 +45,41 @@ If `projects.json` doesn't exist, create it as `[]` and say the registry is empt
 A worker on a long roadmap stops after each step and waits. A **boss** is a manager session
 whose only job is to keep that worker moving. A boss can itself be bossed, and so on.
 
-**The hierarchy nests inside the project.** Level 0 is the repo. Each level up lives in a
-`_boss` subfolder of the level below it:
+**Level 1 sits beside the project; deeper levels nest inside it.**
 
 ```
-C:/dev/ApexTrader                  ← worker, does the actual work
-C:/dev/ApexTrader/_boss            ← drives the worker
-C:/dev/ApexTrader/_boss/_boss      ← drives that boss
+C:/dev/ApexTrader              ← worker, does the actual work (the repo)
+C:/dev/ApexTrader_boss         ← drives the worker
+C:/dev/ApexTrader_boss/_boss   ← drives that boss
+C:/dev/ApexTrader_boss/_boss/_boss   ← and so on
 ```
 
-So level N's path is the project path plus `/_boss` repeated N times. Everything for one effort
-stays inside that effort's repo — nothing leaks into the parent directory.
+The rule follows from one constraint: **boss scaffolding must never land inside the project
+repo.** So level 1 is a sibling — `<project>_boss` — which keeps the effort's repo completely
+untouched, nothing to ignore and nothing to accidentally commit. From there up, each level is a
+`_boss` subfolder of the level below, because boss folders are plain scratch directories, not
+repos, so nesting inside them costs nothing.
 
-Boss folders are scratch — a `CLAUDE.md` and the operator skill, nothing else. A boss must
-never be given the project path as its own cwd; it works *on* the project through its target
-session, not directly.
+- Level 1: `<project>` + `_boss`
+- Level N > 1: level N-1's path + `/_boss`
+
+Boss folders hold a `CLAUDE.md` and the operator skill, nothing else. A boss must never be given
+the project path as its own cwd; it works *on* the project through its target session, not
+directly.
 
 ### Building a level
 
 **Spawn bottom-up, always.** A boss's charter needs the session id of the thing it drives, so
 that thing must exist first. Never spawn a boss before its target is registered and recorded.
 
-For level N (its folder is level N-1's path plus `/_boss`):
+Resolve `<bossPath>` first: `<project>_boss` for level 1, otherwise level N-1's path + `/_boss`.
 
-1. `mkdir -p "<bossPath>"`
+1. `mkdir -p "<bossPath>"` — and confirm it resolved *outside* the project repo at level 1. A
+   boss folder inside the project would put a second session writing files into a tree the
+   worker is committing from: dirty status the worker didn't cause, and scaffolding swept into
+   the effort's history. Never do it, even if a path looks convenient.
 
-2. **Keep `_boss` out of the project's git.** Because it lives inside the repo, the worker will
-   otherwise see it as untracked clutter and may commit it. Add it to the repo's local excludes
-   once, at level 1 — this is machine-local and doesn't modify a tracked file:
-
-   ```bash
-   grep -qxF '_boss/' "<project>/.git/info/exclude" 2>/dev/null || echo '_boss/' >> "<project>/.git/info/exclude"
-   ```
-
-   If the project isn't a git repo, skip this.
-3. Install the manager role and the operator skill:
+2. Install the manager role and the operator skill:
 
    ```bash
    curl -sL https://raw.githubusercontent.com/Sivx/SKILLS/main/manager.md -o "<bossPath>/CLAUDE.md"
@@ -88,7 +88,7 @@ For level N (its folder is level N-1's path plus `/_boss`):
    curl -sL https://raw.githubusercontent.com/Sivx/SKILLS/main/operator/relay.mjs -o "<bossPath>/.claude/skills/operator/relay.mjs"
    ```
 
-4. **Append the charter** to that `CLAUDE.md`. `manager.md` is the generic role; the charter is
+3. **Append the charter** to that `CLAUDE.md`. `manager.md` is the generic role; the charter is
    this boss's specific job. It goes in `CLAUDE.md` rather than a side file so it survives a
    `/clear` and loads on every restart — a boss that forgets its target is worse than no boss.
 
@@ -123,13 +123,13 @@ For level N (its folder is level N-1's path plus `/_boss`):
    to the user.">
    ```
 
-5. Spawn it, naming it for its level:
+4. Spawn it, naming it for its level:
 
    ```bash
    node .claude/skills/operator/relay.mjs spawn "<bossPath>" --name=auto-<name>-boss<N> --prompt="Read CLAUDE.md, then begin your charter."
    ```
 
-6. Append the chain entry with `drives` set to the target's session id, and save.
+5. Append the chain entry with `drives` set to the target's session id, and save.
 
 ### Intervals
 
@@ -140,10 +140,10 @@ loop.
 
 ### Rules that keep nesting safe
 
-- **`_boss` never enters the project's history.** It is scaffolding for driving the effort, not
-  part of it. The local exclude above handles the normal case; if you ever see a boss folder
-  staged or committed, say so immediately — a worker running `git add -A` is the usual cause,
-  and it will keep happening until it's corrected.
+- **Boss scaffolding never touches the project repo.** Keeping level 1 outside the project is
+  what guarantees it: the worker's tree stays clean, its `git status` reflects only its own
+  work, and nothing can sweep boss files into the effort's history. If you ever find a boss
+  folder inside a project, say so — it will produce phantom dirty state and bad commits.
 - **Never create a cycle.** A boss drives strictly downward, one level. Never point a boss at
   its own ancestor or at itself — that's an infinite bump loop with no human in it.
 - **One boss per target.** Two sessions bumping the same worker will double-send and race.
