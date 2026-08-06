@@ -111,7 +111,15 @@ Resolve `<bossPath>` first: level N-1's path + `/_boss`.
    - **Project of record:** `<project path>` — verify work against this tree, not against
      anything the target tells you.
 
+   **On your first tick of a session** (you were just started or restarted), before acting:
+   confirm the target is actually alive, and that you are not a second boss on it. A `list`
+   row with a recent `ageMin` means alive. If another session is already driving this target,
+   stop — two bosses double-send and race.
+
    Each tick: `list --id=<targetSessionId>`.
+   - **no row, or `ageMin` is hours stale** → the target is dead. Do not improvise: never spawn
+     a replacement, adopt a different session, or start doing the work yourself. Report that the
+     target is gone, name the last verified state from the project tree, and stop.
    - `running` → do nothing, say so in one line, stop.
    - `idle` → `status <targetSessionId>`, then decide: step finished (verify on disk and git
      log first, then `/clear` and send the next assignment in the same tick), waiting on a
@@ -172,7 +180,12 @@ loop.
   will keep happening until corrected.
 - **Never create a cycle.** A boss drives strictly downward, one level. Never point a boss at
   its own ancestor or at itself — that's an infinite bump loop with no human in it.
-- **One boss per target.** Two sessions bumping the same worker will double-send and race.
+- **One boss per target.** Two sessions bumping the same worker will double-send and race. This
+  is easy to cause by hand: starting a session in a `_boss` folder gives you a second boss with
+  the same charter. Check the level is not already live before opening one.
+- **A restarted boss inherits its charter, not its target's health.** The charter names a
+  session id that may be dead — the id outlives the session. That's why the first tick verifies
+  the target is alive before doing anything.
 - **Only the top talks to the user.** Every level below escalates to its parent.
 - **Distrust the layer below.** "3 steps done" from a boss is a claim. Errors compound quietly
   as the tree deepens, so the top of the chain verifies against the project tree and git log.
